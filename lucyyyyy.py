@@ -42,8 +42,8 @@ import pygame
 from dotenv import load_dotenv
 
 # ── RAG imports ────────────────────────────────────────────
-import pdfplumber                                             
-from sklearn.feature_extraction.text import TfidfVectorizer 
+import pdfplumber                                              # pip install pdfplumber
+from sklearn.feature_extraction.text import TfidfVectorizer  # pip install scikit-learn
 from sklearn.metrics.pairwise import cosine_similarity
 
 load_dotenv()
@@ -80,21 +80,21 @@ IDLE_POLL_TIMEOUT    = 30.0
 WAKE_WORDS = ["hello", "hey", "hello robobot", "hey robobot", "robobot",
               "robotwala", "hello robotwala", "hey robotwala"]
 
-
+# CHANGE 1: Stop words — only these trigger interruption
 STOP_WORDS = ["stop", "stop it", "ruk", "ruko", "bas", "band karo", "chup"]
 
 # ── RAG config ─────────────────────────────────────────────
-PDF_FILENAME       = "finalrobotwala_Profile.pdf"   
+PDF_FILENAME       = "finalrobotwala_Profile.pdf"   # place this file next to the script
 RAG_CHUNK_WORDS    = 300
 RAG_CHUNK_OVERLAP  = 50
 RAG_TOP_K          = 3
-RAG_MIN_SCORE      = 0.07   
+RAG_MIN_SCORE      = 0.07   # slightly permissive for a focused org profile
 
 # ──────────────────────────────────────────────
 #  SYSTEM PROMPTS
 # ──────────────────────────────────────────────
 
-
+# CHANGE 2: Removed "institute", CHANGE 3: Allow general answers
 SYSTEM_EN_BASE = (
     "Your name is RoboBot. You are the official AI assistant of ROBOTWALA — "
     "an AI, Robotics, Drone, 3D Printing, Coding and STEM education company "
@@ -112,6 +112,7 @@ SYSTEM_EN_BASE = (
     "Answer naturally as if you simply know the information."
 )
 
+# CHANGE 2: Removed "institute", CHANGE 3: Allow general answers
 SYSTEM_HI_BASE = (
     "Aapka naam RoboBot hai. Aap ROBOTWALA ke official AI assistant hain — "
     "yeh ek AI, Robotics, Drone, 3D Printing, Coding aur STEM education company hai, "
@@ -174,11 +175,15 @@ class RobotwalaRAG:
             print(f"📄 Loading PDF: {pdf_path}")
             pages = []
 
-            with pdfplumber.open(r"D:\Robotwala\finalrobotwala_Profile.pdf") as pdf:
+            with pdfplumber.open(pdf_path) as pdf:
                 for page in pdf.pages:
                     text = page.extract_text()
                     if text:
                         pages.append(text.strip())
+
+            if not pages:
+                print("⚠️  PDF loaded but no text extracted — may be image-based.")
+                return False
 
             full_text = "\n\n".join(pages)
             print(f"   Extracted {len(full_text)} characters from {len(pages)} pages")
@@ -262,20 +267,31 @@ class RobotwalaRAG:
         return base + context_block
 
 
-
+# Global RAG instance — loaded once at startup
 rag = RobotwalaRAG()
 
 
 def auto_load_pdf():
+    # Search in multiple locations so the PDF is always found
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    pdf_path = os.path.join(script_dir, PDF_FILENAME)
+    search_paths = [
+        os.path.join(script_dir, PDF_FILENAME),          # same folder as script
+        r"D:\Robotwala\RW final.pdf",                   # hardcoded project folder
+        os.path.join(script_dir, "RW final.pdf"),         # alternate name in script dir
+        os.path.join(script_dir, "RW_final.pdf"),         # underscore variant
+        r"D:\Robotwala\RW_final.pdf",                   # underscore in project folder
+    ]
 
-    if os.path.exists(pdf_path):
-        rag.load_pdf(pdf_path)
-    else:
-        print(f"⚠️  {PDF_FILENAME} not found in {script_dir}")
-        print("   Place the PDF next to this script and restart.")
-        print("   RAG disabled — bot will rely on built-in Robotwala knowledge only.")
+    for pdf_path in search_paths:
+        if os.path.exists(pdf_path):
+            print(f"✅ PDF found: {pdf_path}")
+            rag.load_pdf(pdf_path)
+            return
+
+    print(f"⚠️  PDF not found. Searched in:")
+    for p in search_paths:
+        print(f"   • {p}")
+    print("   RAG disabled — bot will rely on built-in Robotwala knowledge only.")
 
 
 # ══════════════════════════════════════════════
@@ -632,11 +648,11 @@ def speak(text: str, lang: str = "en"):
                         print("   🛑 Stop command detected — halting.")
                         return audio_arr, False
                     elif heard_text:
-                
+                        # New question detected — return audio for answering
                         print("   ❓ New question detected — switching.")
                         return audio_arr, True
                     else:
-                      
+                        # Could not understand — keep playing (restart audio)
                         speech_chunks = []
                         recording = False
                         silence_start = None
@@ -697,7 +713,7 @@ def main():
     reply = ""
     lang  = "en"
 
-   
+    # CHANGE 4: Opening greeting changed to exactly what was requested
     speak(
         "Hello, I'm Robotwala AI Assistant. What can I help you with today?",
         lang="en",
@@ -773,7 +789,7 @@ def main():
                 interrupted_audio, is_new_question = speak(reply, lang)
 
                 if interrupted_audio is not None and is_new_question:
-                    
+                    # User asked a new question mid-answer — transcribe and answer it
                     print("🔍 Transcribing new question...")
                     user_text, lang = transcribe(interrupted_audio)
                     if user_text:
@@ -786,7 +802,7 @@ def main():
                         state = State.LISTENING
                     continue
 
-            
+                # Stop command or finished naturally — go back to listening
                 state = State.LISTENING
                 continue
 
